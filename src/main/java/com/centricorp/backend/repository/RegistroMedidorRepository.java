@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -59,6 +60,13 @@ public interface RegistroMedidorRepository extends JpaRepository<RegistroMedidor
     List<RegistroMedidor> findByTipoServicio(Integer tipoServicio);
 
     /**
+     * Suma el consumo total global filtrado por tipo de servicio.
+     * Retorna null si no hay registros, por lo que el servicio debe manejarlo.
+     */
+    @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r WHERE r.tipoServicio = :tipoServicio AND r.consumo IS NOT NULL")
+    java.math.BigDecimal sumTotalConsumoByTipoServicio(@Param("tipoServicio") Integer tipoServicio);
+
+    /**
      * Los 5 registros más recientes (por createdAt DESC) para la sección
      * de Actividad Reciente del Dashboard.
      */
@@ -83,13 +91,29 @@ public interface RegistroMedidorRepository extends JpaRepository<RegistroMedidor
 
     /**
      * Retorna registros en un rango de fechas SIN filtro de tipo de servicio.
-     * Usado cuando el reporte exporta "Ambos" tipos (tipoServicio = 0).
-     * Cada registro individual tiene su propio tipoServicio para que el frontend
-     * muestre la unidad correcta (kWh o m³) por fila.
-     *
-     * @param inicio Primer día del periodo
-     * @param fin    Último día del periodo
      */
     List<RegistroMedidor> findByFechaRegistroBetween(LocalDate inicio, LocalDate fin);
+
+    /**
+     * Cuenta cuántas infraestructuras DISTINTAS tienen al menos un registro en el rango.
+     * Usado para calcular "Pendientes de lectura".
+     */
+    @Query("SELECT COUNT(DISTINCT r.infraestructura.id) FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin")
+    long countDistinctInfraestructuraByFechaRegistroBetween(
+            @Param("inicio") LocalDate inicio, @Param("fin") LocalDate fin);
+
+    /**
+     * Suma el consumo total (luz + agua) entre dos fechas. Usado para la tendencia mes-a-mes.
+     */
+    @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin AND r.consumo IS NOT NULL")
+    BigDecimal sumConsumoByFechaRegistroBetween(
+            @Param("inicio") LocalDate inicio, @Param("fin") LocalDate fin);
+
+    /**
+     * Los 10 registros más recientes para la sección de Actividad Reciente del Dashboard.
+     */
+    List<RegistroMedidor> findTop10ByOrderByCreatedAtDesc();
 }
 

@@ -9,6 +9,10 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
+
 /**
  * Mapea la tabla: infraestructura
  *
@@ -20,6 +24,9 @@ import java.time.OffsetDateTime;
  */
 @Entity
 @Table(name = "infraestructura")
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+@EntityListeners(com.centricorp.backend.listener.TenantEntityListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -80,4 +87,7 @@ public class Infraestructura {
     @Column(name = "updated_at")
     @UpdateTimestamp
     private OffsetDateTime updatedAt;
+
+    @Column(name = "tenant_id", length = 20)
+    private String tenantId;
 }

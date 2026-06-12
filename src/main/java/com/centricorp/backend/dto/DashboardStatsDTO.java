@@ -20,6 +20,15 @@ public class DashboardStatsDTO {
     /** Número total de empresas registradas */
     private long totalEmpresas;
 
+    /** Consumo global eléctrico */
+    private BigDecimal totalElectricidad;
+
+    /** Consumo global de agua */
+    private BigDecimal totalAgua;
+
+    /** Total de infraestructuras (puntos de medición) */
+    private long totalPuntosMedicion;
+
     /** Número de nodos de infraestructura con tipo UNIDAD (edificios) */
     private long totalEdificios;
 
@@ -29,19 +38,33 @@ public class DashboardStatsDTO {
     /** Número de nodos de infraestructura con tipo ENST */
     private long totalEnst;
 
+    // ── Nuevos KPI: Pendientes + Tendencia ────────────────────────────────
+
+    /** Medidores pendientes de lectura en el mes actual */
+    private long pendingReadings;
+
+    /**
+     * Variación porcentual del consumo total entre el mes actual y el anterior.
+     * Positivo = subió, Negativo = bajó.
+     */
+    private Double consumoTendenciaPct;
+
     // ── Gráfico de Barras: Registros de medidores por mes ─────────────────────
 
     /** Lista de los últimos 6 meses con conteo de medidores registrados */
     private List<MedidoresPorMesDTO> medidoresPorMes;
 
-    // ── Gráfico de Líneas: Consumo mensual ────────────────────────────────────
+    // ── Gráficos de consumo por servicio ─────────────────────────────────
 
-    /** Lista de los últimos 6 meses con sumatoria de consumo */
-    private List<ConsumoMensualDTO> consumoMensual;
+    /** Consumo mensual solo de electricidad (tipo_servicio=1) */
+    private List<ConsumoMensualDTO> consumoMensualLuz;
 
-    // ── Actividad Reciente ─────────────────────────────────────────────────────
+    /** Consumo mensual solo de agua (tipo_servicio=2) */
+    private List<ConsumoMensualDTO> consumoMensualAgua;
 
-    /** Últimos 5 registros de medidores insertados en la BD */
+    // ── Actividad Reciente ───────────────────────────────────────────────
+
+    /** Últimos 10 registros de medidores insertados en la BD */
     private List<ActividadRecienteDTO> actividadReciente;
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -66,8 +89,10 @@ public class DashboardStatsDTO {
     public static class ConsumoMensualDTO {
         /** Etiqueta corta del mes */
         private String mes;
-        /** Sumatoria de consumo (calculado por trigger) en el mes */
-        private BigDecimal consumo;
+        /** Sumatoria de consumo de luz (kWh) */
+        private BigDecimal consumoLuz;
+        /** Sumatoria de consumo de agua (m³) */
+        private BigDecimal consumoAgua;
     }
 
     @Data
@@ -90,5 +115,7 @@ public class DashboardStatsDTO {
         private String fechaRegistro;
         /** createdAt — para calcular tiempo relativo en el frontend */
         private String createdAt;
+        /** Tipo de servicio: 1=Electricidad, 2=Agua */
+        private Integer tipoServicio;
     }
 }

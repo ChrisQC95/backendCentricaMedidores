@@ -58,6 +58,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             // Solo procesar si hay username y NO hay autenticación previa
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                String tenantId = jwtService.extractClaim(jwt, claims -> claims.get("tenant_id", String.class));
+                if (tenantId != null) {
+                    TenantContext.setCurrentTenant(tenantId);
+                }
+
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
                 if (jwtService.isTokenValid(jwt, userDetails)) {
@@ -77,8 +82,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             log.warn("JWT inválido: {}", ex.getMessage());
         } catch (Exception ex) {
             log.error("Error procesando JWT: {}", ex.getMessage());
+        } finally {
+            filterChain.doFilter(request, response);
+            TenantContext.clear();
         }
-
-        filterChain.doFilter(request, response);
     }
 }

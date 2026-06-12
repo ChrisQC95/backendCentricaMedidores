@@ -2,6 +2,7 @@ package com.centricorp.backend.controller;
 
 import com.centricorp.backend.dto.LoginRequest;
 import com.centricorp.backend.dto.LoginResponse;
+import com.centricorp.backend.security.CustomUserDetails;
 import com.centricorp.backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -51,14 +52,18 @@ public class AuthController {
             );
 
             UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            
             // Extraer el rol (ej. "ROLE_ADMIN" -> "ADMIN")
             String role = userDetails.getAuthorities().stream()
                     .findFirst()
                     .map(auth -> auth.getAuthority().replace("ROLE_", ""))
                     .orElse("USUARIO");
                     
-            Map<String, Object> extraClaims = Map.of("rol", role);
+            Map<String, Object> extraClaims = new java.util.HashMap<>();
+            extraClaims.put("rol", role);
+            if (userDetails instanceof CustomUserDetails custom) {
+                extraClaims.put("tenant_id", custom.getTenantId());
+            }
+
             String token = jwtService.generateToken(extraClaims, userDetails);
 
             return ResponseEntity.ok(LoginResponse.of(token, userDetails.getUsername()));

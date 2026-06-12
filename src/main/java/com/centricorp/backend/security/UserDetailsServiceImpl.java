@@ -32,10 +32,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 ? "ROLE_" + usuario.getRol().toUpperCase() 
                 : "ROLE_USUARIO"; // Default fallback
 
-        return User.builder()
-                .username(usuario.getUsername())
-                .password(usuario.getPassword())
-                .authorities(List.of(new SimpleGrantedAuthority(roleName)))
-                .build();
+        return new CustomUserDetails(
+                usuario.getUsername(),
+                usuario.getPassword(),
+                List.of(new SimpleGrantedAuthority(roleName)),
+                usuario.getTenantId()
+        );
     }
 }

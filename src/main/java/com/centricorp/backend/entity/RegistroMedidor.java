@@ -8,6 +8,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
+
 /**
  * Mapea la tabla: registro_medidores
  *
@@ -17,6 +21,9 @@ import java.time.OffsetDateTime;
  */
 @Entity
 @Table(name = "registro_medidores")
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
+@EntityListeners(com.centricorp.backend.listener.TenantEntityListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -64,4 +71,7 @@ public class RegistroMedidor {
     @Column(name = "tipo_servicio")
     private Integer tipoServicio;
     // Nota: 1 = Electricidad, 2 = Agua
+
+    @Column(name = "tenant_id", length = 20)
+    private String tenantId;
 }

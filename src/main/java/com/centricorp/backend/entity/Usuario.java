@@ -37,6 +37,9 @@ public class Usuario {
     @Column(name = "rol", length = 20)
     private String rol;
 
+    @Column(name = "tenant_id", length = 20)
+    private String tenantId;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
