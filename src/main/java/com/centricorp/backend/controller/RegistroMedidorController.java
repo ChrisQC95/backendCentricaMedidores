@@ -37,7 +37,8 @@ public class RegistroMedidorController {
      *   "voltaje": 220.50,
      *   "fotoUrl": "https://cdn.example.com/foto123.jpg",
      *   "observacion": "Medidor en buen estado",
-     *   "fechaRegistro": "2025-05-26"   // opcional — default: hoy
+     *   "fechaRegistro": "2025-05-26",  // opcional — default: hoy
+     *   "tipoServicio": 1               // 1=Luz, 2=Agua
      * }
      */
     @PostMapping
@@ -49,24 +50,37 @@ public class RegistroMedidorController {
     }
 
     @GetMapping
-    public ResponseEntity<List<RegistroMedidorResponseDTO>> findAll() {
-        return ResponseEntity.ok(registroService.findAll());
+    public ResponseEntity<List<RegistroMedidorResponseDTO>> findAll(
+            @RequestParam(required = false) Integer tipoServicio
+    ) {
+        return ResponseEntity.ok(registroService.findAll(tipoServicio));
     }
 
     /**
-     * Endpoint de reporte por mes y año.
+     * Endpoint de reporte por mes, año y tipo de servicio.
      * Devuelve las filas exactas para exportación a Excel.
      *
-     * Ejemplo: GET /api/medidores/reporte?mes=5&anio=2025
+     * Ejemplos:
+     *   GET /api/medidores/reporte?mes=5&anio=2025&tipoServicio=1  → solo Luz
+     *   GET /api/medidores/reporte?mes=5&anio=2025&tipoServicio=2  → solo Agua
+     *   GET /api/medidores/reporte?mes=5&anio=2025                 → Ambos (sin filtro)
+     *   GET /api/medidores/reporte?mes=5&anio=2025&tipoServicio=0  → Ambos (sin filtro)
      *
-     * @param mes  Número de mes (1-12)
-     * @param anio Año de cuatro dígitos (ej. 2025)
+     * Cada fila lleva su campo tipoServicio para que el frontend/Excel
+     * muestre la unidad correcta (kWh o m³) sin mezclar totales.
+     *
+     * @param mes          Número de mes (1-12)
+     * @param anio         Año de cuatro dígitos (ej. 2025)
+     * @param tipoServicio 1=Luz, 2=Agua, 0 o ausente = Ambos
      */
     @GetMapping("/reporte")
     public ResponseEntity<List<RegistroMedidorResponseDTO>> getReporte(
             @RequestParam int mes,
-            @RequestParam int anio
+            @RequestParam int anio,
+            @RequestParam(required = false) Integer tipoServicio
     ) {
-        return ResponseEntity.ok(registroService.findReporte(mes, anio));
+        // 0 se usa como "Ambos" desde el frontend; lo normalizamos a null para el service
+        Integer tipoFiltro = (tipoServicio == null || tipoServicio == 0) ? null : tipoServicio;
+        return ResponseEntity.ok(registroService.findReporte(mes, anio, tipoFiltro));
     }
 }

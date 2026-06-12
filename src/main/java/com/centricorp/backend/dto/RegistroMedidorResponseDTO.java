@@ -45,5 +45,9 @@ public class RegistroMedidorResponseDTO {
 
     private LocalDate fechaRegistro;
     private String observacion;
+    
+    /** Tipo de servicio: 1=Luz, 2=Agua */
+    private Integer tipoServicio;
+    
     private OffsetDateTime createdAt;
 }

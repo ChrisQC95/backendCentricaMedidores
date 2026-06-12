@@ -27,6 +27,10 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
     @Override
     @Transactional
     public RegistroMedidorResponseDTO create(RegistroMedidorRequestDTO dto) {
+        if (dto.getTipoServicio() != null && dto.getTipoServicio() != 1 && dto.getTipoServicio() != 2) {
+            throw new IllegalArgumentException("El tipo de servicio debe ser 1 (Luz) o 2 (Agua).");
+        }
+
         // Validar que el nodo de infraestructura exista → 404 si no
         Infraestructura infra = infraRepo.findById(dto.getInfraestructuraId())
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -41,6 +45,7 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
                 .fechaRegistro(dto.getFechaRegistro() != null
                         ? dto.getFechaRegistro()
                         : LocalDate.now())
+                .tipoServicio(dto.getTipoServicio() != null ? dto.getTipoServicio() : 1) // Default a 1 (Luz)
                 // consumo NO se asigna — insertable=false garantiza que no se manda en el INSERT
                 .build();
 
@@ -53,23 +58,33 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
     }
 
     @Override
-    public List<RegistroMedidorResponseDTO> findAll() {
-        return registroRepo.findAll().stream().map(this::toDTO).toList();
+    public List<RegistroMedidorResponseDTO> findAll(Integer tipoServicio) {
+        List<RegistroMedidor> registros = (tipoServicio != null) 
+                ? registroRepo.findByTipoServicio(tipoServicio) 
+                : registroRepo.findAll();
+        return registros.stream().map(this::toDTO).toList();
     }
 
     @Override
-    public List<RegistroMedidorResponseDTO> findReporte(int mes, int anio) {
+    public List<RegistroMedidorResponseDTO> findReporte(int mes, int anio, Integer tipoServicio) {
         if (mes < 1 || mes > 12) {
             throw new IllegalArgumentException("El mes debe estar entre 1 y 12.");
+        }
+        // Si tipoServicio no es null, debe ser 1 o 2
+        if (tipoServicio != null && tipoServicio != 1 && tipoServicio != 2) {
+            throw new IllegalArgumentException("El tipo de servicio debe ser 1 (Luz) o 2 (Agua), o no indicarse para obtener ambos.");
         }
         YearMonth ym = YearMonth.of(anio, mes);
         LocalDate inicio = ym.atDay(1);
         LocalDate fin    = ym.atEndOfMonth();
 
-        return registroRepo.findByFechaRegistroBetween(inicio, fin)
-                .stream()
-                .map(this::toDTO)
-                .toList();
+        // null = Ambos tipos — devuelve todos los registros del periodo con su tipoServicio
+        // El frontend separa la unidad (kWh / m³) por fila usando row.tipoServicio
+        List<com.centricorp.backend.entity.RegistroMedidor> registros = (tipoServicio == null)
+                ? registroRepo.findByFechaRegistroBetween(inicio, fin)
+                : registroRepo.findByFechaRegistroBetweenAndTipoServicio(inicio, fin, tipoServicio);
+
+        return registros.stream().map(this::toDTO).toList();
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -89,6 +104,7 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
                 .consumo(r.getConsumo())
                 .fechaRegistro(r.getFechaRegistro())
                 .observacion(r.getObservacion())
+                .tipoServicio(r.getTipoServicio())
                 .createdAt(r.getCreatedAt())
                 .build();
     }

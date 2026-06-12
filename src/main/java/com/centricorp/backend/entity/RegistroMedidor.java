@@ -11,7 +11,8 @@ import java.time.OffsetDateTime;
 /**
  * Mapea la tabla: registro_medidores
  *
- * Nota: el campo "consumo" es calculado por la BD (no se inserta ni actualiza desde Java).
+ * Nota: el campo "consumo" es calculado por la BD (no se inserta ni actualiza
+ * desde Java).
  * Se configura con insertable=false, updatable=false.
  */
 @Entity
@@ -59,4 +60,8 @@ public class RegistroMedidor {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
+
+    @Column(name = "tipo_servicio")
+    private Integer tipoServicio;
+    // Nota: 1 = Electricidad, 2 = Agua
 }

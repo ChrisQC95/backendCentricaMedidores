@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -22,7 +23,9 @@ public class DashboardController {
      * Obtiene todas las estadísticas para renderizar el Dashboard principal.
      */
     @GetMapping("/stats")
-    public ResponseEntity<DashboardStatsDTO> getStats() {
-        return ResponseEntity.ok(dashboardService.getStats());
+    public ResponseEntity<DashboardStatsDTO> getStats(
+            @RequestParam(required = false, defaultValue = "1") Integer tipoServicio
+    ) {
+        return ResponseEntity.ok(dashboardService.getStats(tipoServicio));
     }
 }

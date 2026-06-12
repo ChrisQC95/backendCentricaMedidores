@@ -32,7 +32,8 @@ public class DashboardServiceImpl {
             "Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"
     };
 
-    public DashboardStatsDTO getStats() {
+    public DashboardStatsDTO getStats(Integer tipoServicio) {
+        if (tipoServicio == null) tipoServicio = 1; // Default a Luz
 
         // ── KPI Cards ──────────────────────────────────────────────────────────
         long totalEmpresas  = empresaRepo.count();
@@ -44,11 +45,11 @@ public class DashboardServiceImpl {
         LocalDate seisMesesAtras = LocalDate.now().minusMonths(5).withDayOfMonth(1);
 
         // ── Gráfico de Barras: Medidores por mes ───────────────────────────────
-        List<Object[]> rawMedidores = medidorRepo.countByMes(seisMesesAtras);
+        List<Object[]> rawMedidores = medidorRepo.countByMes(seisMesesAtras, tipoServicio);
         List<MedidoresPorMesDTO> medidoresPorMes = buildMedidoresPorMes(rawMedidores, seisMesesAtras);
 
         // ── Gráfico de Líneas: Consumo mensual ─────────────────────────────────
-        List<Object[]> rawConsumo = medidorRepo.sumConsumoByMes(seisMesesAtras);
+        List<Object[]> rawConsumo = medidorRepo.sumConsumoByMes(seisMesesAtras, tipoServicio);
         List<ConsumoMensualDTO> consumoMensual = buildConsumoMensual(rawConsumo, seisMesesAtras);
 
         // ── Actividad Reciente ─────────────────────────────────────────────────

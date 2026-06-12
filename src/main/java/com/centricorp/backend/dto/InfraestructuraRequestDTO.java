@@ -30,4 +30,10 @@ public class InfraestructuraRequestDTO {
 
     /** Descripción adicional libre */
     private String glosa;
+
+    /**
+     * Tipo de espacio: 1 = Oficina, 2 = Almacén.
+     * Puede ser null para nodos que no son un espacio concreto (edificio, piso).
+     */
+    private Integer espacioName;
 }

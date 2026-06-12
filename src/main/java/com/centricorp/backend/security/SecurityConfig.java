@@ -27,11 +27,11 @@ import java.util.List;
  * Configuración principal de Spring Security.
  *
  * Política:
- *  - CSRF deshabilitado (API REST stateless)
- *  - CORS habilitado (configuración permisiva para desarrollo)
- *  - Sesión STATELESS (sin HttpSession)
- *  - Rutas públicas: POST /api/auth/login
- *  - Resto de /api/** requiere autenticación JWT
+ * - CSRF deshabilitado (API REST stateless)
+ * - CORS habilitado (configuración permisiva para desarrollo)
+ * - Sesión STATELESS (sin HttpSession)
+ * - Rutas públicas: POST /api/auth/login
+ * - Resto de /api/** requiere autenticación JWT
  *
  * IMPORTANTE: NoOpPasswordEncoder es TEMPORAL para desarrollo.
  * En producción reemplazar por BCryptPasswordEncoder.
@@ -48,40 +48,44 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // ── Deshabilitar CSRF (API REST stateless no lo necesita) ──────────
-            .csrf(AbstractHttpConfigurer::disable)
+                // ── Deshabilitar CSRF (API REST stateless no lo necesita) ──────────
+                .csrf(AbstractHttpConfigurer::disable)
 
-            // ── CORS ──────────────────────────────────────────────────────────
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // ── CORS ──────────────────────────────────────────────────────────
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-            // ── Autorización de rutas ─────────────────────────────────────────
-            .authorizeHttpRequests(auth -> auth
-                // El login es público
-                .requestMatchers("/api/auth/login").permitAll()
-                
-                // Endpoints exclusivos para ADMIN
-                .requestMatchers("/api/dashboard/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers("/api/empresas/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers("/api/infraestructura/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers("/api/medidores/exportar").hasAuthority("ROLE_ADMIN")
-                
-                // Endpoints permitidos para ADMIN y USUARIO
-                .requestMatchers("/api/medidores/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_USUARIO")
-                
-                // Cualquier otra ruta también autenticada
-                .anyRequest().authenticated()
-            )
+                // ── Autorización de rutas ─────────────────────────────────────────
+                .authorizeHttpRequests(auth -> auth
+                        // El login es público
+                        .requestMatchers("/api/auth/login").permitAll()
 
-            // ── Política de sesión: STATELESS ─────────────────────────────────
-            .sessionManagement(session ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
+                        // Endpoints exclusivos para ADMIN
+                        .requestMatchers("/api/dashboard/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/medidores/exportar").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/medidores/**").hasAuthority("ROLE_ADMIN")
+                        
+                        // Lectura de empresas e infraestructura (ADMIN y USUARIO)
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/empresas/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_USUARIO")
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/infraestructura/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_USUARIO")
 
-            // ── Proveedor de autenticación ────────────────────────────────────
-            .authenticationProvider(authenticationProvider())
+                        // Modificación de empresas e infraestructura (ADMIN exclusivo)
+                        .requestMatchers("/api/empresas/**").hasAuthority("ROLE_ADMIN")
+                        .requestMatchers("/api/infraestructura/**").hasAuthority("ROLE_ADMIN")
 
-            // ── Filtro JWT antes del filtro estándar de usuario/contraseña ────
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                        // CRUD de medidores (Lectura, Creación y Actualización) para ADMIN y USUARIO
+                        .requestMatchers("/api/medidores/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_USUARIO")
+
+                        // Cualquier otra ruta también autenticada
+                        .anyRequest().authenticated())
+
+                // ── Política de sesión: STATELESS ─────────────────────────────────
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // ── Proveedor de autenticación ────────────────────────────────────
+                .authenticationProvider(authenticationProvider())
+
+                // ── Filtro JWT antes del filtro estándar de usuario/contraseña ────
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -104,7 +108,8 @@ public class SecurityConfig {
     }
 
     /**
-     * DaoAuthenticationProvider: usa nuestro UserDetailsService y el PasswordEncoder.
+     * DaoAuthenticationProvider: usa nuestro UserDetailsService y el
+     * PasswordEncoder.
      */
     @Bean
     public AuthenticationProvider authenticationProvider() {

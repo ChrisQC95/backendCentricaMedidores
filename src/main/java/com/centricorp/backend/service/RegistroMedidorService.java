@@ -10,11 +10,15 @@ public interface RegistroMedidorService {
     /** Inserta un nuevo registro (consumo es manejado por trigger de BD) */
     RegistroMedidorResponseDTO create(RegistroMedidorRequestDTO dto);
 
-    List<RegistroMedidorResponseDTO> findAll();
+    List<RegistroMedidorResponseDTO> findAll(Integer tipoServicio);
 
     /**
-     * Retorna los registros correspondientes al mes y año indicados.
-     * Usado por GET /api/medidores/reporte?mes=X&anio=Y para exportación.
+     * Retorna los registros del mes y año indicados.
+     *
+     * @param mes          1-12
+     * @param anio         Año de 4 dígitos
+     * @param tipoServicio 1=Luz, 2=Agua, null=Ambos (sin filtro de tipo)
      */
-    List<RegistroMedidorResponseDTO> findReporte(int mes, int anio);
+    List<RegistroMedidorResponseDTO> findReporte(int mes, int anio, Integer tipoServicio);
 }
+

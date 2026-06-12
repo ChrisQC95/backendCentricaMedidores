@@ -38,4 +38,7 @@ public class RegistroMedidorRequestDTO {
      * el servicio usará LocalDate.now() como fallback.
      */
     private LocalDate fechaRegistro;
+
+    /** Tipo de servicio: 1=Luz, 2=Agua */
+    private Integer tipoServicio;
 }

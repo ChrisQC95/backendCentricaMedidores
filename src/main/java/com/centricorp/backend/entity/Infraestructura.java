@@ -62,6 +62,17 @@ public class Infraestructura {
     @Column(name = "glosa", columnDefinition = "TEXT")
     private String glosa;
 
+    /**
+     * Tipo de espacio dentro de la infraestructura.
+     * 1 = Oficina, 2 = Almacén.
+     * Es nullable para nodos que no representan un espacio físico concreto
+     * (ej. edificios, pisos).
+     * IMPORTANTE: la columna "espacio_name" debe existir en la BD antes de
+     * iniciar el backend (migración SQL manual o script de Supabase).
+     */
+    @Column(name = "espacio_name")
+    private Integer espacioName;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
