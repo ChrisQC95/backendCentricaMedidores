@@ -43,7 +43,7 @@ public class AuthController {
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
         try {
             // Delegar autenticación al AuthenticationManager
-            // Este invoca DaoAuthenticationProvider → UserDetailsServiceImpl → NoOpPasswordEncoder
+            // Este invoca DaoAuthenticationProvider → UserDetailsServiceImpl → BCryptPasswordEncoder
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             request.username(),

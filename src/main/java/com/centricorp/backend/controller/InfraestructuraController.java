@@ -3,7 +3,9 @@ package com.centricorp.backend.controller;
 import com.centricorp.backend.dto.InfraestructuraRequestDTO;
 import com.centricorp.backend.dto.InfraestructuraResponseDTO;
 import com.centricorp.backend.service.InfraestructuraService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,12 +15,12 @@ import java.util.List;
 /**
  * CRUD de Infraestructura + endpoint especial por empresa.
  *
- * GET    /api/infraestructura                    → listar todo
- * GET    /api/infraestructura/{id}               → obtener por ID
- * GET    /api/infraestructura/empresa/{ruc}      → lista plana por empresa (para selectores)
- * POST   /api/infraestructura                    → crear nodo
- * PUT    /api/infraestructura/{id}               → actualizar nodo
- * DELETE /api/infraestructura/{id}               → eliminar nodo (CASCADE a hijos y medidores)
+ * GET    /api/infraestructura?page=0&size=10   → lista paginada
+ * GET    /api/infraestructura/{id}             → obtener por ID
+ * GET    /api/infraestructura/empresa/{ruc}    → lista plana por empresa (selectores)
+ * POST   /api/infraestructura                  → crear nodo
+ * PUT    /api/infraestructura/{id}             → actualizar nodo
+ * DELETE /api/infraestructura/{id}             → eliminar nodo (CASCADE a hijos y medidores)
  */
 @RestController
 @RequestMapping("/api/infraestructura")
@@ -28,8 +30,11 @@ public class InfraestructuraController {
     private final InfraestructuraService infraService;
 
     @GetMapping
-    public ResponseEntity<List<InfraestructuraResponseDTO>> findAll() {
-        return ResponseEntity.ok(infraService.findAll());
+    public ResponseEntity<Page<InfraestructuraResponseDTO>> findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(infraService.findAll(page, size));
     }
 
     @GetMapping("/{id}")
@@ -38,8 +43,7 @@ public class InfraestructuraController {
     }
 
     /**
-     * Endpoint para que el frontend cargue el selector de infraestructura
-     * filtrado por empresa. Retorna lista plana ordenada por nombre.
+     * Lista plana (sin paginación) para uso en selectores/combo boxes del frontend.
      */
     @GetMapping("/empresa/{ruc}")
     public ResponseEntity<List<InfraestructuraResponseDTO>> findByEmpresa(@PathVariable String ruc) {
@@ -48,7 +52,7 @@ public class InfraestructuraController {
 
     @PostMapping
     public ResponseEntity<InfraestructuraResponseDTO> create(
-            @RequestBody InfraestructuraRequestDTO dto
+            @Valid @RequestBody InfraestructuraRequestDTO dto
     ) {
         return ResponseEntity.status(HttpStatus.CREATED).body(infraService.create(dto));
     }
@@ -56,7 +60,7 @@ public class InfraestructuraController {
     @PutMapping("/{id}")
     public ResponseEntity<InfraestructuraResponseDTO> update(
             @PathVariable Integer id,
-            @RequestBody InfraestructuraRequestDTO dto
+            @Valid @RequestBody InfraestructuraRequestDTO dto
     ) {
         return ResponseEntity.ok(infraService.update(id, dto));
     }

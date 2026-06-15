@@ -1,64 +1,92 @@
 package com.centricorp.backend.service.impl;
 
 import com.centricorp.backend.dto.DashboardStatsDTO;
-import com.centricorp.backend.dto.DashboardStatsDTO.*;
+import com.centricorp.backend.dto.DashboardStatsDTO.ActividadRecienteDTO;
+import com.centricorp.backend.dto.DashboardStatsDTO.ConsumoMensualDTO;
+import com.centricorp.backend.dto.DashboardStatsDTO.MedidoresPorMesDTO;
+import com.centricorp.backend.entity.RegistroMedidor;
 import com.centricorp.backend.entity.TipoNivel;
 import com.centricorp.backend.repository.EmpresaRepository;
 import com.centricorp.backend.repository.InfraestructuraRepository;
 import com.centricorp.backend.repository.RegistroMedidorRepository;
+import com.centricorp.backend.security.SecurityUtils;
+import com.centricorp.backend.security.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
-/**
- * Lógica de negocio para el Dashboard administrativo.
- * Devuelve toda la data en un solo DTO; el frontend filtra en memoria por tipo de servicio.
- */
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class DashboardServiceImpl {
 
-    private final EmpresaRepository         empresaRepo;
-    private final InfraestructuraRepository  infraRepo;
-    private final RegistroMedidorRepository  medidorRepo;
+    private final EmpresaRepository empresaRepo;
+    private final InfraestructuraRepository infraRepo;
+    private final RegistroMedidorRepository medidorRepo;
 
-    /** Etiquetas cortas de mes en español (índice 0 = Enero) */
     private static final String[] MESES_CORTOS = {
-            "Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"
+            "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
     };
 
     public DashboardStatsDTO getStats(Integer tipoServicio) {
         if (tipoServicio == null) tipoServicio = 1;
 
-        // ── KPI Cards ──────────────────────────────────────────────────────────
-        long totalEmpresas       = empresaRepo.count();
-        long totalEdificios      = infraRepo.countByTipo(TipoNivel.UNIDAD);
-        long totalPisos          = infraRepo.countByTipo(TipoNivel.PISO);
-        long totalEnst           = infraRepo.countByTipo(TipoNivel.ENST);
-        long totalPuntosMedicion = infraRepo.count();
+        boolean superAdmin = SecurityUtils.isSuperAdmin();
+        String tenantId = TenantContext.getCurrentTenant();
 
-        BigDecimal totalElectricidad = Objects.requireNonNullElse(medidorRepo.sumTotalConsumoByTipoServicio(1), BigDecimal.ZERO);
-        BigDecimal totalAgua         = Objects.requireNonNullElse(medidorRepo.sumTotalConsumoByTipoServicio(2), BigDecimal.ZERO);
+        long totalEmpresas = superAdmin ? empresaRepo.count() : empresaRepo.countByTenantId(tenantId);
+        long totalEdificios = superAdmin
+                ? infraRepo.countByTipo(TipoNivel.UNIDAD)
+                : infraRepo.countByTipoAndTenantId(TipoNivel.UNIDAD, tenantId);
+        long totalPisos = superAdmin
+                ? infraRepo.countByTipo(TipoNivel.PISO)
+                : infraRepo.countByTipoAndTenantId(TipoNivel.PISO, tenantId);
+        long totalEnst = superAdmin
+                ? infraRepo.countByTipo(TipoNivel.ENST)
+                : infraRepo.countByTipoAndTenantId(TipoNivel.ENST, tenantId);
+        long totalPuntosMedicion = superAdmin ? infraRepo.count() : infraRepo.countByTenantId(tenantId);
 
-        // ── Pendientes de lectura en el mes actual ─────────────────────────────
-        LocalDate hoy          = LocalDate.now();
-        LocalDate inicioMes    = hoy.withDayOfMonth(1);
-        long conLecturaMes     = medidorRepo.countDistinctInfraestructuraByFechaRegistroBetween(inicioMes, hoy);
-        long pendingReadings   = Math.max(0L, totalPuntosMedicion - conLecturaMes);
+        BigDecimal totalElectricidad = Objects.requireNonNullElse(
+                superAdmin
+                        ? medidorRepo.sumTotalConsumoByTipoServicio(1)
+                        : medidorRepo.sumTotalConsumoByTipoServicioAndTenantId(1, tenantId),
+                BigDecimal.ZERO);
+        BigDecimal totalAgua = Objects.requireNonNullElse(
+                superAdmin
+                        ? medidorRepo.sumTotalConsumoByTipoServicio(2)
+                        : medidorRepo.sumTotalConsumoByTipoServicioAndTenantId(2, tenantId),
+                BigDecimal.ZERO);
 
-        // ── Tendencia de consumo: mes actual vs mes anterior ───────────────────
+        LocalDate hoy = LocalDate.now();
+        LocalDate inicioMes = hoy.withDayOfMonth(1);
+        long conLecturaMes = superAdmin
+                ? medidorRepo.countDistinctInfraestructuraByFechaRegistroBetween(inicioMes, hoy)
+                : medidorRepo.countDistinctInfraestructuraByFechaRegistroBetweenAndTenantId(inicioMes, hoy, tenantId);
+        long pendingReadings = Math.max(0L, totalPuntosMedicion - conLecturaMes);
+
         LocalDate inicioMesAnt = inicioMes.minusMonths(1);
-        LocalDate finMesAnt    = inicioMes.minusDays(1);
+        LocalDate finMesAnt = inicioMes.minusDays(1);
 
         BigDecimal consumoMesAct = Objects.requireNonNullElse(
-                medidorRepo.sumConsumoByFechaRegistroBetween(inicioMes, hoy), BigDecimal.ZERO);
+                superAdmin
+                        ? medidorRepo.sumConsumoByFechaRegistroBetween(inicioMes, hoy)
+                        : medidorRepo.sumConsumoByFechaRegistroBetweenAndTenantId(inicioMes, hoy, tenantId),
+                BigDecimal.ZERO);
         BigDecimal consumoMesAnt = Objects.requireNonNullElse(
-                medidorRepo.sumConsumoByFechaRegistroBetween(inicioMesAnt, finMesAnt), BigDecimal.ZERO);
+                superAdmin
+                        ? medidorRepo.sumConsumoByFechaRegistroBetween(inicioMesAnt, finMesAnt)
+                        : medidorRepo.sumConsumoByFechaRegistroBetweenAndTenantId(inicioMesAnt, finMesAnt, tenantId),
+                BigDecimal.ZERO);
 
         Double consumoTendenciaPct = null;
         if (consumoMesAnt.compareTo(BigDecimal.ZERO) != 0) {
@@ -68,23 +96,27 @@ public class DashboardServiceImpl {
                     .doubleValue();
         }
 
-        // ── Últimos 6 meses base ───────────────────────────────────────────────
         LocalDate seisMesesAtras = hoy.minusMonths(5).withDayOfMonth(1);
-        List<String> meses       = buildMonthSeries(seisMesesAtras);
+        List<String> meses = buildMonthSeries(seisMesesAtras);
 
-        // ── Lecturas por mes (total, sin filtro de servicio) ──────────────────
-        List<Object[]> rawMedidores = medidorRepo.countByMes(seisMesesAtras, tipoServicio);
+        List<Object[]> rawMedidores = superAdmin
+                ? medidorRepo.countByMes(seisMesesAtras, tipoServicio)
+                : medidorRepo.countByMesAndTenantId(seisMesesAtras, tipoServicio, tenantId);
         List<MedidoresPorMesDTO> medidoresPorMes = buildMedidoresPorMes(rawMedidores, seisMesesAtras);
 
-        // ── Consumo mensual separado por servicio ─────────────────────────────
-        List<Object[]> rawLuz   = medidorRepo.sumConsumoByMes(seisMesesAtras, 1);
-        List<Object[]> rawAgua  = medidorRepo.sumConsumoByMes(seisMesesAtras, 2);
-        List<ConsumoMensualDTO> consumoMensualLuz  = buildConsumoMensual(rawLuz,  meses);
+        List<Object[]> rawLuz = superAdmin
+                ? medidorRepo.sumConsumoByMes(seisMesesAtras, 1)
+                : medidorRepo.sumConsumoByMesAndTenantId(seisMesesAtras, 1, tenantId);
+        List<Object[]> rawAgua = superAdmin
+                ? medidorRepo.sumConsumoByMes(seisMesesAtras, 2)
+                : medidorRepo.sumConsumoByMesAndTenantId(seisMesesAtras, 2, tenantId);
+        List<ConsumoMensualDTO> consumoMensualLuz = buildConsumoMensual(rawLuz, meses);
         List<ConsumoMensualDTO> consumoMensualAgua = buildConsumoMensual(rawAgua, meses);
 
-        // ── Actividad Reciente: últimos 10 registros ──────────────────────────
-        List<ActividadRecienteDTO> actividad = medidorRepo.findTop10ByOrderByCreatedAtDesc()
-                .stream()
+        List<RegistroMedidor> recientes = superAdmin
+                ? medidorRepo.findTop10ByOrderByCreatedAtDesc()
+                : medidorRepo.findTop10ByTenantIdOrderByCreatedAtDesc(tenantId);
+        List<ActividadRecienteDTO> actividad = recientes.stream()
                 .map(r -> ActividadRecienteDTO.builder()
                         .id(r.getId())
                         .puntoMedicion(r.getInfraestructura().getNombre())
@@ -117,8 +149,6 @@ public class DashboardServiceImpl {
                 .build();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
     private List<MedidoresPorMesDTO> buildMedidoresPorMes(List<Object[]> raw, LocalDate desde) {
         Map<String, Long> byMonth = new LinkedHashMap<>();
         raw.forEach(row -> byMonth.put((String) row[0], (Long) row[1]));
@@ -130,12 +160,6 @@ public class DashboardServiceImpl {
                 .toList();
     }
 
-    /**
-     * Construye una lista de ConsumoMensualDTO desde una raw query.
-     * Como ahora el DTO tiene consumoLuz/consumoAgua, el campo que se use
-     * depende del llamador; aquí siempre se escribe consumoLuz para unificidad
-     * — en el DTO compuesto el frontend puede mezclar ambas series.
-     */
     private List<ConsumoMensualDTO> buildConsumoMensual(List<Object[]> raw, List<String> meses) {
         Map<String, BigDecimal> byMonth = new LinkedHashMap<>();
         raw.forEach(row -> byMonth.put((String) row[0], (BigDecimal) row[1]));
@@ -143,7 +167,7 @@ public class DashboardServiceImpl {
                 .map(ym -> ConsumoMensualDTO.builder()
                         .mes(mesLabel(ym))
                         .consumoLuz(byMonth.getOrDefault(ym, BigDecimal.ZERO))
-                        .consumoAgua(BigDecimal.ZERO) // placeholder; el llamador sobreescribe si necesita
+                        .consumoAgua(BigDecimal.ZERO)
                         .build())
                 .toList();
     }
@@ -151,7 +175,7 @@ public class DashboardServiceImpl {
     private List<String> buildMonthSeries(LocalDate desde) {
         List<String> series = new ArrayList<>();
         LocalDate cursor = desde;
-        LocalDate now    = LocalDate.now();
+        LocalDate now = LocalDate.now();
         while (!cursor.isAfter(now)) {
             series.add(String.format("%04d-%02d", cursor.getYear(), cursor.getMonthValue()));
             cursor = cursor.plusMonths(1);
@@ -160,7 +184,7 @@ public class DashboardServiceImpl {
     }
 
     private String mesLabel(String ym) {
-        int mes  = Integer.parseInt(ym.substring(5, 7));
+        int mes = Integer.parseInt(ym.substring(5, 7));
         int anio = Integer.parseInt(ym.substring(2, 4));
         return MESES_CORTOS[mes - 1] + "-" + String.format("%02d", anio);
     }

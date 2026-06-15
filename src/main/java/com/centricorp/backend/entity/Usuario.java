@@ -28,8 +28,7 @@ public class Usuario {
     private String username;
 
     /**
-     * Almacena la contraseña. Por ahora en texto plano (NoOpPasswordEncoder).
-     * En producción debe migrarse a BCrypt.
+     * Almacena el hash BCrypt de la contraseña.
      */
     @Column(name = "password", nullable = false)
     private String password;

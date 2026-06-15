@@ -19,19 +19,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Objects;
 
-/**
- * Filtro JWT que se ejecuta una vez por request.
- * Intercepta el header "Authorization: Bearer <token>", lo valida
- * y si es válido, establece la autenticación en el SecurityContext.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final String AUTH_HEADER   = "Authorization";
+    private static final String AUTH_HEADER = "Authorization";
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
@@ -45,7 +41,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader(AUTH_HEADER);
 
-        // Sin header o sin prefijo Bearer → continuar sin autenticar
         if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
             filterChain.doFilter(request, response);
             return;
@@ -56,16 +51,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             final String username = jwtService.extractUsername(jwt);
 
-            // Solo procesar si hay username y NO hay autenticación previa
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                String tenantId = jwtService.extractClaim(jwt, claims -> claims.get("tenant_id", String.class));
-                if (tenantId != null) {
-                    TenantContext.setCurrentTenant(tenantId);
-                }
-
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
                 if (jwtService.isTokenValid(jwt, userDetails)) {
+                    validateAndSetTenantContext(jwt, userDetails, username, response);
+                    if (response.isCommitted()) {
+                        return;
+                    }
+
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(
                                     userDetails,
@@ -76,15 +70,44 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 }
             }
+
+            filterChain.doFilter(request, response);
         } catch (ExpiredJwtException ex) {
             log.warn("JWT expirado: {}", ex.getMessage());
+            filterChain.doFilter(request, response);
         } catch (SignatureException | MalformedJwtException ex) {
-            log.warn("JWT inválido: {}", ex.getMessage());
+            log.warn("JWT invalido: {}", ex.getMessage());
+            filterChain.doFilter(request, response);
         } catch (Exception ex) {
             log.error("Error procesando JWT: {}", ex.getMessage());
-        } finally {
             filterChain.doFilter(request, response);
+        } finally {
             TenantContext.clear();
+        }
+    }
+
+    private void validateAndSetTenantContext(
+            String jwt,
+            UserDetails userDetails,
+            String username,
+            HttpServletResponse response
+    ) throws IOException {
+        String tokenTenantId = jwtService.extractClaim(jwt, claims -> claims.get("tenant_id", String.class));
+        boolean isSuperAdmin = userDetails.getAuthorities().stream()
+                .anyMatch(auth -> "ROLE_SUPERADMIN".equals(auth.getAuthority()));
+
+        if (userDetails instanceof CustomUserDetails customUserDetails) {
+            String userTenantId = customUserDetails.getTenantId();
+
+            if (!isSuperAdmin && !Objects.equals(tokenTenantId, userTenantId)) {
+                log.warn("JWT rechazado por tenant_id inconsistente para usuario {}", username);
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Token invalido");
+                return;
+            }
+
+            if (userTenantId != null) {
+                TenantContext.setCurrentTenant(userTenantId);
+            }
         }
     }
 }

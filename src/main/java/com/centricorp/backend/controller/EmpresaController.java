@@ -2,22 +2,23 @@ package com.centricorp.backend.controller;
 
 import com.centricorp.backend.dto.EmpresaDTO;
 import com.centricorp.backend.service.EmpresaService;
+import com.centricorp.backend.service.EmpresaExcelService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /**
  * CRUD de Empresas.
  * Todas las rutas bajo /api/** están protegidas por JWT (ver SecurityConfig).
  *
- * GET    /api/empresas          → listar todas
- * GET    /api/empresas/{ruc}    → obtener por RUC
- * POST   /api/empresas          → crear nueva empresa
- * PUT    /api/empresas/{ruc}    → actualizar razon social
- * DELETE /api/empresas/{ruc}    → eliminar empresa
+ * GET    /api/empresas?page=0&size=10  → lista paginada
+ * GET    /api/empresas/{ruc}           → obtener por RUC
+ * POST   /api/empresas                 → crear nueva empresa
+ * PUT    /api/empresas/{ruc}           → actualizar razón social
+ * DELETE /api/empresas/{ruc}           → eliminar empresa
  */
 @RestController
 @RequestMapping("/api/empresas")
@@ -25,10 +26,14 @@ import java.util.List;
 public class EmpresaController {
 
     private final EmpresaService empresaService;
+    private final EmpresaExcelService empresaExcelService;
 
     @GetMapping
-    public ResponseEntity<List<EmpresaDTO>> findAll() {
-        return ResponseEntity.ok(empresaService.findAll());
+    public ResponseEntity<Page<EmpresaDTO>> findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return ResponseEntity.ok(empresaService.findAll(page, size));
     }
 
     @GetMapping("/{ruc}")
@@ -37,14 +42,14 @@ public class EmpresaController {
     }
 
     @PostMapping
-    public ResponseEntity<EmpresaDTO> create(@RequestBody EmpresaDTO dto) {
+    public ResponseEntity<EmpresaDTO> create(@Valid @RequestBody EmpresaDTO dto) {
         return ResponseEntity.status(HttpStatus.CREATED).body(empresaService.create(dto));
     }
 
     @PutMapping("/{ruc}")
     public ResponseEntity<EmpresaDTO> update(
             @PathVariable String ruc,
-            @RequestBody EmpresaDTO dto
+            @Valid @RequestBody EmpresaDTO dto
     ) {
         return ResponseEntity.ok(empresaService.update(ruc, dto));
     }
@@ -53,5 +58,24 @@ public class EmpresaController {
     public ResponseEntity<Void> delete(@PathVariable String ruc) {
         empresaService.delete(ruc);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/plantilla")
+    public ResponseEntity<org.springframework.core.io.InputStreamResource> descargarPlantilla() {
+        java.io.ByteArrayInputStream stream = empresaExcelService.generarPlantillaExcel();
+        
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.add("Content-Disposition", "attachment; filename=plantilla_empresas.xlsx");
+        
+        return ResponseEntity.ok()
+                .headers(headers)
+                .contentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(new org.springframework.core.io.InputStreamResource(stream));
+    }
+
+    @PostMapping("/upload")
+    public ResponseEntity<com.centricorp.backend.dto.CargaMasivaResponseDTO> uploadEmpresas(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        com.centricorp.backend.dto.CargaMasivaResponseDTO response = empresaExcelService.procesarCargaMasiva(file);
+        return ResponseEntity.ok(response);
     }
 }

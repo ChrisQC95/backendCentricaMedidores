@@ -4,12 +4,15 @@ import com.centricorp.backend.dto.EmpresaDTO;
 import com.centricorp.backend.entity.Empresa;
 import com.centricorp.backend.exception.ResourceNotFoundException;
 import com.centricorp.backend.repository.EmpresaRepository;
+import com.centricorp.backend.security.SecurityUtils;
+import com.centricorp.backend.security.TenantContext;
 import com.centricorp.backend.service.EmpresaService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -19,10 +22,14 @@ public class EmpresaServiceImpl implements EmpresaService {
     private final EmpresaRepository empresaRepository;
 
     @Override
-    public List<EmpresaDTO> findAll() {
-        return empresaRepository.findAll().stream()
-                .map(this::toDTO)
-                .toList();
+    public Page<EmpresaDTO> findAll(int page, int size) {
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "razonSocial"));
+
+        Page<Empresa> empresas = SecurityUtils.isSuperAdmin()
+                ? empresaRepository.findAll(pageable)
+                : empresaRepository.findByTenantId(currentTenant(), pageable);
+
+        return empresas.map(this::toDTO);
     }
 
     @Override
@@ -33,10 +40,14 @@ public class EmpresaServiceImpl implements EmpresaService {
     @Override
     @Transactional
     public EmpresaDTO create(EmpresaDTO dto) {
-        if (empresaRepository.existsById(dto.getRuc())) {
-            throw new IllegalArgumentException(
-                    "Ya existe una empresa con RUC: " + dto.getRuc());
+        boolean exists = SecurityUtils.isSuperAdmin()
+                ? empresaRepository.existsById(dto.getRuc())
+                : empresaRepository.existsByRucAndTenantId(dto.getRuc(), currentTenant());
+
+        if (exists) {
+            throw new IllegalArgumentException("Ya existe una empresa con RUC: " + dto.getRuc());
         }
+
         Empresa empresa = Empresa.builder()
                 .ruc(dto.getRuc())
                 .razonSocial(dto.getRazonSocial())
@@ -59,11 +70,16 @@ public class EmpresaServiceImpl implements EmpresaService {
         empresaRepository.delete(empresa);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
-
     private Empresa getOrThrow(String ruc) {
-        return empresaRepository.findById(ruc)
+        return SecurityUtils.isSuperAdmin()
+                ? empresaRepository.findById(ruc)
+                .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc))
+                : empresaRepository.findByRucAndTenantId(ruc, currentTenant())
                 .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc));
+    }
+
+    private String currentTenant() {
+        return TenantContext.getCurrentTenant();
     }
 
     private EmpresaDTO toDTO(Empresa e) {

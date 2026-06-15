@@ -7,8 +7,13 @@ import com.centricorp.backend.entity.RegistroMedidor;
 import com.centricorp.backend.exception.ResourceNotFoundException;
 import com.centricorp.backend.repository.InfraestructuraRepository;
 import com.centricorp.backend.repository.RegistroMedidorRepository;
+import com.centricorp.backend.security.SecurityUtils;
+import com.centricorp.backend.security.TenantContext;
 import com.centricorp.backend.service.RegistroMedidorService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,38 +36,38 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
             throw new IllegalArgumentException("El tipo de servicio debe ser 1 (Luz) o 2 (Agua).");
         }
 
-        // Validar que el nodo de infraestructura exista → 404 si no
-        Infraestructura infra = infraRepo.findById(dto.getInfraestructuraId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Infraestructura", dto.getInfraestructuraId()));
+        Infraestructura infra = getInfraestructuraOrThrow(dto.getInfraestructuraId());
 
         RegistroMedidor registro = RegistroMedidor.builder()
                 .infraestructura(infra)
                 .fotoUrl(dto.getFotoUrl())
                 .voltaje(dto.getVoltaje())
                 .observacion(dto.getObservacion())
-                // Si el cliente no envía fecha, usamos la fecha actual como el DEFAULT de BD
-                .fechaRegistro(dto.getFechaRegistro() != null
-                        ? dto.getFechaRegistro()
-                        : LocalDate.now())
-                .tipoServicio(dto.getTipoServicio() != null ? dto.getTipoServicio() : 1) // Default a 1 (Luz)
-                // consumo NO se asigna — insertable=false garantiza que no se manda en el INSERT
+                .fechaRegistro(dto.getFechaRegistro() != null ? dto.getFechaRegistro() : LocalDate.now())
+                .tipoServicio(dto.getTipoServicio() != null ? dto.getTipoServicio() : 1)
                 .build();
 
         RegistroMedidor saved = registroRepo.save(registro);
-
-        // Re-fetch para obtener el consumo calculado por el trigger de BD
-        // El trigger corre AFTER INSERT, así que refreshamos con findById
-        return toDTO(registroRepo.findById(saved.getId())
-                .orElse(saved));
+        return toDTO(getRegistroOrFallback(saved));
     }
 
     @Override
-    public List<RegistroMedidorResponseDTO> findAll(Integer tipoServicio) {
-        List<RegistroMedidor> registros = (tipoServicio != null) 
-                ? registroRepo.findByTipoServicio(tipoServicio) 
-                : registroRepo.findAll();
-        return registros.stream().map(this::toDTO).toList();
+    public Page<RegistroMedidorResponseDTO> findAll(Integer tipoServicio, int page, int size) {
+        // Siempre ordenar por fecha descendente para mayor relevancia al usuario
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "fechaRegistro", "createdAt"));
+
+        Page<RegistroMedidor> registros;
+        if (SecurityUtils.isSuperAdmin()) {
+            registros = tipoServicio != null
+                    ? registroRepo.findByTipoServicio(tipoServicio, pageable)
+                    : registroRepo.findAll(pageable);
+        } else {
+            registros = tipoServicio != null
+                    ? registroRepo.findByTipoServicioAndTenantId(tipoServicio, currentTenant(), pageable)
+                    : registroRepo.findByTenantId(currentTenant(), pageable);
+        }
+
+        return registros.map(this::toDTO);
     }
 
     @Override
@@ -70,24 +75,46 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
         if (mes < 1 || mes > 12) {
             throw new IllegalArgumentException("El mes debe estar entre 1 y 12.");
         }
-        // Si tipoServicio no es null, debe ser 1 o 2
         if (tipoServicio != null && tipoServicio != 1 && tipoServicio != 2) {
             throw new IllegalArgumentException("El tipo de servicio debe ser 1 (Luz) o 2 (Agua), o no indicarse para obtener ambos.");
         }
+
         YearMonth ym = YearMonth.of(anio, mes);
         LocalDate inicio = ym.atDay(1);
-        LocalDate fin    = ym.atEndOfMonth();
+        LocalDate fin = ym.atEndOfMonth();
 
-        // null = Ambos tipos — devuelve todos los registros del periodo con su tipoServicio
-        // El frontend separa la unidad (kWh / m³) por fila usando row.tipoServicio
-        List<com.centricorp.backend.entity.RegistroMedidor> registros = (tipoServicio == null)
-                ? registroRepo.findByFechaRegistroBetween(inicio, fin)
-                : registroRepo.findByFechaRegistroBetweenAndTipoServicio(inicio, fin, tipoServicio);
+        List<RegistroMedidor> registros;
+        if (SecurityUtils.isSuperAdmin()) {
+            registros = tipoServicio == null
+                    ? registroRepo.findByFechaRegistroBetween(inicio, fin)
+                    : registroRepo.findByFechaRegistroBetweenAndTipoServicio(inicio, fin, tipoServicio);
+        } else {
+            registros = tipoServicio == null
+                    ? registroRepo.findByFechaRegistroBetweenAndTenantId(inicio, fin, currentTenant())
+                    : registroRepo.findByFechaRegistroBetweenAndTipoServicioAndTenantId(
+                    inicio, fin, tipoServicio, currentTenant());
+        }
 
         return registros.stream().map(this::toDTO).toList();
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    private Infraestructura getInfraestructuraOrThrow(Integer id) {
+        return SecurityUtils.isSuperAdmin()
+                ? infraRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id))
+                : infraRepo.findByIdAndTenantId(id, currentTenant())
+                .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id));
+    }
+
+    private RegistroMedidor getRegistroOrFallback(RegistroMedidor saved) {
+        return SecurityUtils.isSuperAdmin()
+                ? registroRepo.findById(saved.getId()).orElse(saved)
+                : registroRepo.findByIdAndTenantId(saved.getId(), currentTenant()).orElse(saved);
+    }
+
+    private String currentTenant() {
+        return TenantContext.getCurrentTenant();
+    }
 
     private RegistroMedidorResponseDTO toDTO(RegistroMedidor r) {
         Infraestructura infra = r.getInfraestructura();
@@ -95,8 +122,7 @@ public class RegistroMedidorServiceImpl implements RegistroMedidorService {
                 .id(r.getId())
                 .infraestructuraId(infra.getId())
                 .infraestructuraNombre(infra.getNombre())
-                .infraestructuraTipo(infra.getTipo() != null
-                        ? infra.getTipo().name() : null)
+                .infraestructuraTipo(infra.getTipo() != null ? infra.getTipo().name() : null)
                 .empresaRuc(infra.getEmpresa().getRuc())
                 .empresaRazonSocial(infra.getEmpresa().getRazonSocial())
                 .fotoUrl(r.getFotoUrl())

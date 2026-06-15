@@ -1,6 +1,9 @@
 package com.centricorp.backend.repository;
 
 import com.centricorp.backend.entity.RegistroMedidor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,32 +12,54 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
-/**
- * Repository para la tabla "registro_medidores".
- *
- * Método personalizado:
- *   findByFechaRegistroBetween — extrae registros en un rango de fechas
- *   para la generación del reporte / exportación a Excel.
- */
 @Repository
 public interface RegistroMedidorRepository extends JpaRepository<RegistroMedidor, Integer> {
 
-    /**
-     * Retorna registros cuya fecha_registro esté entre 'inicio' y 'fin' (inclusive)
-     * y filtra por el tipo de servicio.
-     * Usado por GET /api/medidores/reporte?mes=X&anio=Y&tipoServicio=Z
-     *
-     * @param inicio Primer día del periodo (ej. 2025-05-01)
-     * @param fin    Último día del periodo  (ej. 2025-05-31)
-     * @param tipoServicio 1=Luz, 2=Agua
-     */
-    List<RegistroMedidor> findByFechaRegistroBetweenAndTipoServicio(LocalDate inicio, LocalDate fin, Integer tipoServicio);
+    // ─── Consultas únicas (sin paginar) ─────────────────────────────────────────
+
+    Optional<RegistroMedidor> findByIdAndTenantId(Integer id, String tenantId);
+
+    // ─── Listados paginados con @EntityGraph para erradicar N+1 ─────────────────
 
     /**
-     * Cuenta registros agrupados por año-mes para el gráfico de barras del Dashboard, filtrado por tipo de servicio.
-     * Retorna Object[] { "YYYY-MM" (String), count (Long) } ordenado ASC.
+     * Carga RegistroMedidor + infraestructura + empresa en un solo JOIN FETCH.
+     * Erradica el N+1 que se producía al acceder a r.infraestructura.empresa
+     * dentro del método toDTO() del servicio.
      */
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    Page<RegistroMedidor> findAll(Pageable pageable);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    Page<RegistroMedidor> findByTenantId(String tenantId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    Page<RegistroMedidor> findByTipoServicio(Integer tipoServicio, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    Page<RegistroMedidor> findByTipoServicioAndTenantId(Integer tipoServicio, String tenantId, Pageable pageable);
+
+    // ─── Listas planas (reporte Excel — sin paginar, solo filtradas por rango) ──
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findByFechaRegistroBetween(LocalDate inicio, LocalDate fin);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findByFechaRegistroBetweenAndTenantId(LocalDate inicio, LocalDate fin, String tenantId);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findByFechaRegistroBetweenAndTipoServicio(LocalDate inicio, LocalDate fin, Integer tipoServicio);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findByFechaRegistroBetweenAndTipoServicioAndTenantId(
+            LocalDate inicio,
+            LocalDate fin,
+            Integer tipoServicio,
+            String tenantId);
+
+    // ─── Consultas de agregación (Dashboard, Stats) ──────────────────────────────
+
     @Query("SELECT FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM'), COUNT(r) " +
            "FROM RegistroMedidor r " +
            "WHERE r.fechaRegistro >= :inicio AND r.tipoServicio = :tipoServicio " +
@@ -42,78 +67,97 @@ public interface RegistroMedidorRepository extends JpaRepository<RegistroMedidor
            "ORDER BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') ASC")
     List<Object[]> countByMes(@Param("inicio") LocalDate inicio, @Param("tipoServicio") Integer tipoServicio);
 
-    /**
-     * Sumatoria de consumo agrupada por año-mes para el gráfico de líneas, filtrado por tipo de servicio.
-     * Retorna Object[] { "YYYY-MM", sumConsumo (BigDecimal) }.
-     * Excluye registros con consumo NULL (primer registro sin referencia).
-     */
+    @Query("SELECT FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM'), COUNT(r) " +
+           "FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.tipoServicio = :tipoServicio AND r.tenantId = :tenantId " +
+           "GROUP BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') " +
+           "ORDER BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') ASC")
+    List<Object[]> countByMesAndTenantId(
+            @Param("inicio") LocalDate inicio,
+            @Param("tipoServicio") Integer tipoServicio,
+            @Param("tenantId") String tenantId);
+
     @Query("SELECT FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM'), SUM(r.consumo) " +
            "FROM RegistroMedidor r " +
            "WHERE r.fechaRegistro >= :inicio AND r.consumo IS NOT NULL AND r.tipoServicio = :tipoServicio " +
            "GROUP BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') " +
            "ORDER BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') ASC")
     List<Object[]> sumConsumoByMes(@Param("inicio") LocalDate inicio, @Param("tipoServicio") Integer tipoServicio);
-    
-    /**
-     * Retorna todos los registros filtrados por tipo de servicio.
-     */
-    List<RegistroMedidor> findByTipoServicio(Integer tipoServicio);
 
-    /**
-     * Suma el consumo total global filtrado por tipo de servicio.
-     * Retorna null si no hay registros, por lo que el servicio debe manejarlo.
-     */
+    @Query("SELECT FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM'), SUM(r.consumo) " +
+           "FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.consumo IS NOT NULL " +
+           "AND r.tipoServicio = :tipoServicio AND r.tenantId = :tenantId " +
+           "GROUP BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') " +
+           "ORDER BY FUNCTION('TO_CHAR', r.fechaRegistro, 'YYYY-MM') ASC")
+    List<Object[]> sumConsumoByMesAndTenantId(
+            @Param("inicio") LocalDate inicio,
+            @Param("tipoServicio") Integer tipoServicio,
+            @Param("tenantId") String tenantId);
+
     @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r WHERE r.tipoServicio = :tipoServicio AND r.consumo IS NOT NULL")
-    java.math.BigDecimal sumTotalConsumoByTipoServicio(@Param("tipoServicio") Integer tipoServicio);
+    BigDecimal sumTotalConsumoByTipoServicio(@Param("tipoServicio") Integer tipoServicio);
 
-    /**
-     * Los 5 registros más recientes (por createdAt DESC) para la sección
-     * de Actividad Reciente del Dashboard.
-     */
-    List<RegistroMedidor> findTop5ByOrderByCreatedAtDesc();
+    @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
+           "WHERE r.tipoServicio = :tipoServicio AND r.consumo IS NOT NULL AND r.tenantId = :tenantId")
+    BigDecimal sumTotalConsumoByTipoServicioAndTenantId(
+            @Param("tipoServicio") Integer tipoServicio,
+            @Param("tenantId") String tenantId);
 
-    /**
-     * Suma el consumo de una infraestructura específica filtrada por tipo de servicio.
-     * Retorna null si no hay registros con consumo != NULL para ese par (infraestructura, tipo).
-     * Se usa en InfraestructuraServiceImpl.toDTO para calcular totalConsumoElectricidad
-     * y totalConsumoAgua de forma estricta — NUNCA mezcla tipos distintos.
-     *
-     * @param infraestructuraId ID del nodo de infraestructura
-     * @param tipoServicio      1=Electricidad, 2=Agua
-     */
     @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
            "WHERE r.infraestructura.id = :infraestructuraId " +
            "AND r.tipoServicio = :tipoServicio " +
            "AND r.consumo IS NOT NULL")
-    java.math.BigDecimal sumConsumoByInfraestructuraIdAndTipoServicio(
+    BigDecimal sumConsumoByInfraestructuraIdAndTipoServicio(
             @Param("infraestructuraId") Integer infraestructuraId,
             @Param("tipoServicio") Integer tipoServicio);
 
-    /**
-     * Retorna registros en un rango de fechas SIN filtro de tipo de servicio.
-     */
-    List<RegistroMedidor> findByFechaRegistroBetween(LocalDate inicio, LocalDate fin);
+    @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
+           "WHERE r.infraestructura.id = :infraestructuraId " +
+           "AND r.tipoServicio = :tipoServicio " +
+           "AND r.tenantId = :tenantId " +
+           "AND r.consumo IS NOT NULL")
+    BigDecimal sumConsumoByInfraestructuraIdAndTipoServicioAndTenantId(
+            @Param("infraestructuraId") Integer infraestructuraId,
+            @Param("tipoServicio") Integer tipoServicio,
+            @Param("tenantId") String tenantId);
 
-    /**
-     * Cuenta cuántas infraestructuras DISTINTAS tienen al menos un registro en el rango.
-     * Usado para calcular "Pendientes de lectura".
-     */
     @Query("SELECT COUNT(DISTINCT r.infraestructura.id) FROM RegistroMedidor r " +
            "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin")
     long countDistinctInfraestructuraByFechaRegistroBetween(
-            @Param("inicio") LocalDate inicio, @Param("fin") LocalDate fin);
+            @Param("inicio") LocalDate inicio,
+            @Param("fin") LocalDate fin);
 
-    /**
-     * Suma el consumo total (luz + agua) entre dos fechas. Usado para la tendencia mes-a-mes.
-     */
+    @Query("SELECT COUNT(DISTINCT r.infraestructura.id) FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin AND r.tenantId = :tenantId")
+    long countDistinctInfraestructuraByFechaRegistroBetweenAndTenantId(
+            @Param("inicio") LocalDate inicio,
+            @Param("fin") LocalDate fin,
+            @Param("tenantId") String tenantId);
+
     @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
            "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin AND r.consumo IS NOT NULL")
     BigDecimal sumConsumoByFechaRegistroBetween(
-            @Param("inicio") LocalDate inicio, @Param("fin") LocalDate fin);
+            @Param("inicio") LocalDate inicio,
+            @Param("fin") LocalDate fin);
 
-    /**
-     * Los 10 registros más recientes para la sección de Actividad Reciente del Dashboard.
-     */
+    @Query("SELECT SUM(r.consumo) FROM RegistroMedidor r " +
+           "WHERE r.fechaRegistro >= :inicio AND r.fechaRegistro <= :fin " +
+           "AND r.consumo IS NOT NULL AND r.tenantId = :tenantId")
+    BigDecimal sumConsumoByFechaRegistroBetweenAndTenantId(
+            @Param("inicio") LocalDate inicio,
+            @Param("fin") LocalDate fin,
+            @Param("tenantId") String tenantId);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findTop5ByOrderByCreatedAtDesc();
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findTop5ByTenantIdOrderByCreatedAtDesc(String tenantId);
+
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
     List<RegistroMedidor> findTop10ByOrderByCreatedAtDesc();
-}
 
+    @EntityGraph(attributePaths = {"infraestructura", "infraestructura.empresa"})
+    List<RegistroMedidor> findTop10ByTenantIdOrderByCreatedAtDesc(String tenantId);
+}

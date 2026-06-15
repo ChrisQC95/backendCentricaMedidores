@@ -8,8 +8,13 @@ import com.centricorp.backend.exception.ResourceNotFoundException;
 import com.centricorp.backend.repository.EmpresaRepository;
 import com.centricorp.backend.repository.InfraestructuraRepository;
 import com.centricorp.backend.repository.RegistroMedidorRepository;
+import com.centricorp.backend.security.SecurityUtils;
+import com.centricorp.backend.security.TenantContext;
 import com.centricorp.backend.service.InfraestructuraService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,17 +26,19 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class InfraestructuraServiceImpl implements InfraestructuraService {
 
-    private final InfraestructuraRepository  infraRepo;
-    private final EmpresaRepository          empresaRepo;
-    /**
-     * Inyectado para calcular los totales de consumo separados por tipo_servicio.
-     * Garantiza que NUNCA se mezclen kWh (Electricidad) con m³ (Agua).
-     */
-    private final RegistroMedidorRepository  medidorRepo;
+    private final InfraestructuraRepository infraRepo;
+    private final EmpresaRepository empresaRepo;
+    private final RegistroMedidorRepository medidorRepo;
 
     @Override
-    public List<InfraestructuraResponseDTO> findAll() {
-        return infraRepo.findAll().stream().map(this::toDTO).toList();
+    public Page<InfraestructuraResponseDTO> findAll(int page, int size) {
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "nombre"));
+
+        Page<Infraestructura> items = SecurityUtils.isSuperAdmin()
+                ? infraRepo.findAll(pageable)
+                : infraRepo.findByTenantId(currentTenant(), pageable);
+
+        return items.map(this::toDTO);
     }
 
     @Override
@@ -41,18 +48,19 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
 
     @Override
     public List<InfraestructuraResponseDTO> findByEmpresaRuc(String ruc) {
-        // Verificar que la empresa exista antes de retornar lista vacía
-        if (!empresaRepo.existsById(ruc)) {
-            throw new ResourceNotFoundException("Empresa", ruc);
-        }
-        return infraRepo.findByEmpresaRuc(ruc).stream().map(this::toDTO).toList();
+        getEmpresaOrThrow(ruc);
+
+        List<Infraestructura> items = SecurityUtils.isSuperAdmin()
+                ? infraRepo.findByEmpresaRuc(ruc)
+                : infraRepo.findByEmpresaRucAndTenantId(ruc, currentTenant());
+
+        return items.stream().map(this::toDTO).toList();
     }
 
     @Override
     @Transactional
     public InfraestructuraResponseDTO create(InfraestructuraRequestDTO dto) {
-        Empresa empresa = empresaRepo.findById(dto.getEmpresaRuc())
-                .orElseThrow(() -> new ResourceNotFoundException("Empresa", dto.getEmpresaRuc()));
+        Empresa empresa = getEmpresaOrThrow(dto.getEmpresaRuc());
 
         Infraestructura parent = null;
         if (dto.getParentId() != null) {
@@ -76,25 +84,19 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
     public InfraestructuraResponseDTO update(Integer id, InfraestructuraRequestDTO dto) {
         Infraestructura infra = getOrThrow(id);
 
-        // Actualizar empresa si cambió
         if (dto.getEmpresaRuc() != null && !dto.getEmpresaRuc().equals(infra.getEmpresa().getRuc())) {
-            Empresa empresa = empresaRepo.findById(dto.getEmpresaRuc())
-                    .orElseThrow(() -> new ResourceNotFoundException("Empresa", dto.getEmpresaRuc()));
-            infra.setEmpresa(empresa);
+            infra.setEmpresa(getEmpresaOrThrow(dto.getEmpresaRuc()));
         }
 
-        // Actualizar parent si cambió
         if (dto.getParentId() != null) {
             infra.setParent(getOrThrow(dto.getParentId()));
         } else {
-            infra.setParent(null); // permite mover nodo a raíz
+            infra.setParent(null);
         }
 
-        if (dto.getTipo()   != null) infra.setTipo(dto.getTipo());
+        if (dto.getTipo() != null) infra.setTipo(dto.getTipo());
         if (dto.getNombre() != null) infra.setNombre(dto.getNombre());
         infra.setGlosa(dto.getGlosa());
-
-        // espacioName se actualiza siempre (puede ponerse a null explícitamente)
         infra.setEspacioName(dto.getEspacioName());
 
         return toDTO(infraRepo.save(infra));
@@ -107,42 +109,49 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
         infraRepo.delete(infra);
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
-
     private Infraestructura getOrThrow(Integer id) {
-        return infraRepo.findById(id)
+        return SecurityUtils.isSuperAdmin()
+                ? infraRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id))
+                : infraRepo.findByIdAndTenantId(id, currentTenant())
                 .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id));
     }
 
-    /**
-     * Mapea la entidad al DTO de respuesta calculando los totales de consumo
-     * de forma estrictamente separada por tipo_servicio.
-     *
-     * La query del repositorio filtra por infraestructura_id AND tipo_servicio,
-     * por lo que es matemáticamente imposible sumar kWh con m³.
-     * Si no hay registros con consumo calculado, devuelve BigDecimal.ZERO.
-     */
-    private InfraestructuraResponseDTO toDTO(Infraestructura i) {
-        // Consumo Electricidad (tipo_servicio = 1) — puede ser null si no hay registros
-        BigDecimal consumoElectricidad = medidorRepo
-                .sumConsumoByInfraestructuraIdAndTipoServicio(i.getId(), 1);
+    private Empresa getEmpresaOrThrow(String ruc) {
+        return SecurityUtils.isSuperAdmin()
+                ? empresaRepo.findById(ruc)
+                .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc))
+                : empresaRepo.findByRucAndTenantId(ruc, currentTenant())
+                .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc));
+    }
 
-        // Consumo Agua (tipo_servicio = 2) — puede ser null si no hay registros
-        BigDecimal consumoAgua = medidorRepo
-                .sumConsumoByInfraestructuraIdAndTipoServicio(i.getId(), 2);
+    private BigDecimal sumConsumo(Integer infraestructuraId, Integer tipoServicio) {
+        return SecurityUtils.isSuperAdmin()
+                ? medidorRepo.sumConsumoByInfraestructuraIdAndTipoServicio(infraestructuraId, tipoServicio)
+                : medidorRepo.sumConsumoByInfraestructuraIdAndTipoServicioAndTenantId(
+                infraestructuraId, tipoServicio, currentTenant());
+    }
+
+    private String currentTenant() {
+        return TenantContext.getCurrentTenant();
+    }
+
+    private InfraestructuraResponseDTO toDTO(Infraestructura i) {
+        BigDecimal consumoElectricidad = sumConsumo(i.getId(), 1);
+        BigDecimal consumoAgua = sumConsumo(i.getId(), 2);
 
         return InfraestructuraResponseDTO.builder()
                 .id(i.getId())
                 .empresaRuc(i.getEmpresa().getRuc())
                 .empresaRazonSocial(i.getEmpresa().getRazonSocial())
-                .parentId(i.getParent()  != null ? i.getParent().getId()    : null)
+                .parentId(i.getParent() != null ? i.getParent().getId() : null)
                 .parentNombre(i.getParent() != null ? i.getParent().getNombre() : null)
                 .tipo(i.getTipo())
                 .nombre(i.getNombre())
                 .glosa(i.getGlosa())
                 .espacioName(i.getEspacioName())
                 .totalConsumoElectricidad(consumoElectricidad != null ? consumoElectricidad : BigDecimal.ZERO)
-                .totalConsumoAgua(consumoAgua         != null ? consumoAgua         : BigDecimal.ZERO)
+                .totalConsumoAgua(consumoAgua != null ? consumoAgua : BigDecimal.ZERO)
                 .createdAt(i.getCreatedAt())
                 .updatedAt(i.getUpdatedAt())
                 .build();
