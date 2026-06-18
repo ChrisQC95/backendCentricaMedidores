@@ -43,14 +43,17 @@ public class RequestAwareCookieCsrfTokenRepository implements CsrfTokenRepositor
     @Override
     public CsrfToken loadToken(HttpServletRequest request) {
         Cookie[] cookies = request.getCookies();
-        if (cookies == null) {
-            return null;
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (COOKIE_NAME.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                    return new DefaultCsrfToken(HEADER_NAME, PARAMETER_NAME, cookie.getValue());
+                }
+            }
         }
 
-        for (Cookie cookie : cookies) {
-            if (COOKIE_NAME.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
-                return new DefaultCsrfToken(HEADER_NAME, PARAMETER_NAME, cookie.getValue());
-            }
+        String headerToken = request.getHeader(HEADER_NAME);
+        if (headerToken != null && !headerToken.isBlank()) {
+            return new DefaultCsrfToken(HEADER_NAME, PARAMETER_NAME, headerToken);
         }
 
         return null;
