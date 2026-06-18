@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -120,6 +121,18 @@ public interface RegistroMedidorRepository extends JpaRepository<RegistroMedidor
     BigDecimal sumConsumoByInfraestructuraIdAndTipoServicioAndTenantId(
             @Param("infraestructuraId") Integer infraestructuraId,
             @Param("tipoServicio") Integer tipoServicio,
+            @Param("tenantId") String tenantId);
+
+    @Query("""
+            SELECT r.infraestructura.id, r.tipoServicio, COALESCE(SUM(r.consumo), 0)
+            FROM RegistroMedidor r
+            WHERE r.infraestructura.id IN :ids
+              AND (:tenantId IS NULL OR r.tenantId = :tenantId)
+              AND r.consumo IS NOT NULL
+            GROUP BY r.infraestructura.id, r.tipoServicio
+            """)
+    List<Object[]> sumConsumoByInfraestructuraIds(
+            @Param("ids") Collection<Integer> ids,
             @Param("tenantId") String tenantId);
 
     @Query("SELECT COUNT(DISTINCT r.infraestructura.id) FROM RegistroMedidor r " +

@@ -27,6 +27,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class InfraestructuraController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final InfraestructuraService infraService;
 
     @GetMapping
@@ -34,7 +36,17 @@ public class InfraestructuraController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ResponseEntity.ok(infraService.findAll(page, size));
+        return ResponseEntity.ok(infraService.findAll(normalizePage(page), normalizeSize(size)));
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<Page<InfraestructuraResponseDTO>> search(
+            @RequestParam(required = false) String empresaRuc,
+            @RequestParam(defaultValue = "") String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(infraService.search(empresaRuc, q, normalizePage(page), normalizeSearchSize(size)));
     }
 
     @GetMapping("/{id}")
@@ -69,5 +81,17 @@ public class InfraestructuraController {
     public ResponseEntity<Void> delete(@PathVariable Integer id) {
         infraService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private int normalizePage(int page) {
+        return Math.max(page, 0);
+    }
+
+    private int normalizeSize(int size) {
+        return Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    }
+
+    private int normalizeSearchSize(int size) {
+        return Math.min(Math.max(size, 1), 50);
     }
 }

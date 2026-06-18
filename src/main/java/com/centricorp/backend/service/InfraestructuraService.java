@@ -15,6 +15,8 @@ public interface InfraestructuraService {
      */
     Page<InfraestructuraResponseDTO> findAll(int page, int size);
 
+    Page<InfraestructuraResponseDTO> search(String empresaRuc, String q, int page, int size);
+
     InfraestructuraResponseDTO findById(Integer id);
 
     /**

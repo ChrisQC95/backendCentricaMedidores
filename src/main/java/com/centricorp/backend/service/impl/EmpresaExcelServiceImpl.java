@@ -3,7 +3,7 @@ package com.centricorp.backend.service.impl;
 import com.centricorp.backend.dto.CargaMasivaResponseDTO;
 import com.centricorp.backend.entity.Empresa;
 import com.centricorp.backend.repository.EmpresaRepository;
-import com.centricorp.backend.security.TenantContext;
+import com.centricorp.backend.security.TenantGuard;
 import com.centricorp.backend.service.EmpresaExcelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +25,9 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class EmpresaExcelServiceImpl implements EmpresaExcelService {
+
+    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_ROWS = 1000;
 
     private final EmpresaRepository empresaRepository;
 
@@ -74,16 +77,27 @@ public class EmpresaExcelServiceImpl implements EmpresaExcelService {
     @Override
     @Transactional
     public CargaMasivaResponseDTO procesarCargaMasiva(MultipartFile file) {
+        TenantGuard.rejectSuperAdminMutation();
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Archivo requerido");
+        }
+        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
+            throw new IllegalArgumentException("El archivo excede el maximo permitido de 2 MB");
+        }
+
         List<String> errores = new ArrayList<>();
         List<Empresa> empresasBatch = new ArrayList<>();
         Set<String> rucsProcesadosEnArchivo = new HashSet<>();
         
         int procesados = 0;
         int exitosos = 0;
-        String tenantId = TenantContext.getCurrentTenant();
+        String tenantId = TenantGuard.requireTenant();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
+            if (sheet.getLastRowNum() > MAX_ROWS) {
+                throw new IllegalArgumentException("El archivo supera el maximo de " + MAX_ROWS + " filas");
+            }
 
             // Iterar sobre las filas
             for (Row row : sheet) {

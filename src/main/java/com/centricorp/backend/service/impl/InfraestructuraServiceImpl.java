@@ -9,7 +9,7 @@ import com.centricorp.backend.repository.EmpresaRepository;
 import com.centricorp.backend.repository.InfraestructuraRepository;
 import com.centricorp.backend.repository.RegistroMedidorRepository;
 import com.centricorp.backend.security.SecurityUtils;
-import com.centricorp.backend.security.TenantContext;
+import com.centricorp.backend.security.TenantGuard;
 import com.centricorp.backend.service.InfraestructuraService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,12 +19,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class InfraestructuraServiceImpl implements InfraestructuraService {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final InfraestructuraRepository infraRepo;
     private final EmpresaRepository empresaRepo;
@@ -32,18 +36,42 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
 
     @Override
     public Page<InfraestructuraResponseDTO> findAll(int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "nombre"));
+        PageRequest pageable = PageRequest.of(normalizePage(page), normalizeSize(size), Sort.by(Sort.Direction.ASC, "nombre"));
 
         Page<Infraestructura> items = SecurityUtils.isSuperAdmin()
                 ? infraRepo.findAll(pageable)
-                : infraRepo.findByTenantId(currentTenant(), pageable);
+                : infraRepo.findByTenantId(TenantGuard.requireTenant(), pageable);
 
-        return items.map(this::toDTO);
+        Map<Integer, Map<Integer, BigDecimal>> consumos = loadConsumos(items.getContent());
+        return items.map(item -> toDTO(item, consumos));
+    }
+
+    @Override
+    public Page<InfraestructuraResponseDTO> search(String empresaRuc, String q, int page, int size) {
+        String term = q == null ? "" : q.trim();
+        String ruc = empresaRuc == null ? "" : empresaRuc.trim();
+        PageRequest pageable = PageRequest.of(normalizePage(page), normalizeSearchSize(size), Sort.by(Sort.Direction.ASC, "nombre"));
+
+        Page<Infraestructura> items;
+        if (SecurityUtils.isSuperAdmin()) {
+            items = ruc.isBlank()
+                    ? infraRepo.findByNombreContainingIgnoreCase(term, pageable)
+                    : infraRepo.findByEmpresaRucAndNombreContainingIgnoreCase(ruc, term, pageable);
+        } else {
+            String tenantId = TenantGuard.requireTenant();
+            items = ruc.isBlank()
+                    ? infraRepo.findByTenantIdAndNombreContainingIgnoreCase(tenantId, term, pageable)
+                    : infraRepo.findByEmpresaRucAndTenantIdAndNombreContainingIgnoreCase(ruc, tenantId, term, pageable);
+        }
+
+        Map<Integer, Map<Integer, BigDecimal>> consumos = loadConsumos(items.getContent());
+        return items.map(item -> toDTO(item, consumos));
     }
 
     @Override
     public InfraestructuraResponseDTO findById(Integer id) {
-        return toDTO(getOrThrow(id));
+        Infraestructura item = getOrThrow(id);
+        return toDTO(item, loadConsumos(List.of(item)));
     }
 
     @Override
@@ -52,14 +80,16 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
 
         List<Infraestructura> items = SecurityUtils.isSuperAdmin()
                 ? infraRepo.findByEmpresaRuc(ruc)
-                : infraRepo.findByEmpresaRucAndTenantId(ruc, currentTenant());
+                : infraRepo.findByEmpresaRucAndTenantId(ruc, TenantGuard.requireTenant());
 
-        return items.stream().map(this::toDTO).toList();
+        Map<Integer, Map<Integer, BigDecimal>> consumos = loadConsumos(items);
+        return items.stream().map(item -> toDTO(item, consumos)).toList();
     }
 
     @Override
     @Transactional
     public InfraestructuraResponseDTO create(InfraestructuraRequestDTO dto) {
+        TenantGuard.rejectSuperAdminMutation();
         Empresa empresa = getEmpresaOrThrow(dto.getEmpresaRuc());
 
         Infraestructura parent = null;
@@ -76,12 +106,14 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
                 .espacioName(dto.getEspacioName())
                 .build();
 
-        return toDTO(infraRepo.save(infra));
+        Infraestructura saved = infraRepo.save(infra);
+        return toDTO(saved, loadConsumos(List.of(saved)));
     }
 
     @Override
     @Transactional
     public InfraestructuraResponseDTO update(Integer id, InfraestructuraRequestDTO dto) {
+        TenantGuard.rejectSuperAdminMutation();
         Infraestructura infra = getOrThrow(id);
 
         if (dto.getEmpresaRuc() != null && !dto.getEmpresaRuc().equals(infra.getEmpresa().getRuc())) {
@@ -99,12 +131,14 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
         infra.setGlosa(dto.getGlosa());
         infra.setEspacioName(dto.getEspacioName());
 
-        return toDTO(infraRepo.save(infra));
+        Infraestructura saved = infraRepo.save(infra);
+        return toDTO(saved, loadConsumos(List.of(saved)));
     }
 
     @Override
     @Transactional
     public void delete(Integer id) {
+        TenantGuard.rejectSuperAdminMutation();
         Infraestructura infra = getOrThrow(id);
         infraRepo.delete(infra);
     }
@@ -113,7 +147,7 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
         return SecurityUtils.isSuperAdmin()
                 ? infraRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id))
-                : infraRepo.findByIdAndTenantId(id, currentTenant())
+                : infraRepo.findByIdAndTenantId(id, TenantGuard.requireTenant())
                 .orElseThrow(() -> new ResourceNotFoundException("Infraestructura", id));
     }
 
@@ -121,24 +155,49 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
         return SecurityUtils.isSuperAdmin()
                 ? empresaRepo.findById(ruc)
                 .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc))
-                : empresaRepo.findByRucAndTenantId(ruc, currentTenant())
+                : empresaRepo.findByRucAndTenantId(ruc, TenantGuard.requireTenant())
                 .orElseThrow(() -> new ResourceNotFoundException("Empresa", ruc));
     }
 
-    private BigDecimal sumConsumo(Integer infraestructuraId, Integer tipoServicio) {
-        return SecurityUtils.isSuperAdmin()
-                ? medidorRepo.sumConsumoByInfraestructuraIdAndTipoServicio(infraestructuraId, tipoServicio)
-                : medidorRepo.sumConsumoByInfraestructuraIdAndTipoServicioAndTenantId(
-                infraestructuraId, tipoServicio, currentTenant());
+    private int normalizePage(int page) {
+        return Math.max(page, 0);
     }
 
-    private String currentTenant() {
-        return TenantContext.getCurrentTenant();
+    private int normalizeSize(int size) {
+        return Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
     }
 
-    private InfraestructuraResponseDTO toDTO(Infraestructura i) {
-        BigDecimal consumoElectricidad = sumConsumo(i.getId(), 1);
-        BigDecimal consumoAgua = sumConsumo(i.getId(), 2);
+    private int normalizeSearchSize(int size) {
+        return Math.min(Math.max(size, 1), 50);
+    }
+
+    private Map<Integer, Map<Integer, BigDecimal>> loadConsumos(List<Infraestructura> infraestructuras) {
+        List<Integer> ids = infraestructuras.stream()
+                .map(Infraestructura::getId)
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+
+        String tenantId = SecurityUtils.isSuperAdmin() ? null : TenantGuard.requireTenant();
+        List<Object[]> rows = medidorRepo.sumConsumoByInfraestructuraIds(ids, tenantId);
+        Map<Integer, Map<Integer, BigDecimal>> consumos = new HashMap<>();
+
+        for (Object[] row : rows) {
+            Integer infraestructuraId = ((Number) row[0]).intValue();
+            Integer tipoServicio = ((Number) row[1]).intValue();
+            BigDecimal total = (BigDecimal) row[2];
+            consumos.computeIfAbsent(infraestructuraId, ignored -> new HashMap<>())
+                    .put(tipoServicio, total);
+        }
+
+        return consumos;
+    }
+
+    private InfraestructuraResponseDTO toDTO(Infraestructura i, Map<Integer, Map<Integer, BigDecimal>> consumos) {
+        Map<Integer, BigDecimal> consumoPorTipo = consumos.getOrDefault(i.getId(), Map.of());
+        BigDecimal consumoElectricidad = consumoPorTipo.getOrDefault(1, BigDecimal.ZERO);
+        BigDecimal consumoAgua = consumoPorTipo.getOrDefault(2, BigDecimal.ZERO);
 
         return InfraestructuraResponseDTO.builder()
                 .id(i.getId())
@@ -150,8 +209,8 @@ public class InfraestructuraServiceImpl implements InfraestructuraService {
                 .nombre(i.getNombre())
                 .glosa(i.getGlosa())
                 .espacioName(i.getEspacioName())
-                .totalConsumoElectricidad(consumoElectricidad != null ? consumoElectricidad : BigDecimal.ZERO)
-                .totalConsumoAgua(consumoAgua != null ? consumoAgua : BigDecimal.ZERO)
+                .totalConsumoElectricidad(consumoElectricidad)
+                .totalConsumoAgua(consumoAgua)
                 .createdAt(i.getCreatedAt())
                 .updatedAt(i.getUpdatedAt())
                 .build();

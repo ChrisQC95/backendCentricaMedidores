@@ -13,6 +13,18 @@ public interface EmpresaRepository extends JpaRepository<Empresa, String> {
 
     Page<Empresa> findByTenantId(String tenantId, Pageable pageable);
 
+    Page<Empresa> findByRucContainingIgnoreCaseOrRazonSocialContainingIgnoreCase(
+            String ruc,
+            String razonSocial,
+            Pageable pageable);
+
+    Page<Empresa> findByTenantIdAndRucContainingIgnoreCaseOrTenantIdAndRazonSocialContainingIgnoreCase(
+            String tenantIdForRuc,
+            String ruc,
+            String tenantIdForRazonSocial,
+            String razonSocial,
+            Pageable pageable);
+
     long countByTenantId(String tenantId);
 
     Optional<Empresa> findByRucAndTenantId(String ruc, String tenantId);

@@ -5,11 +5,17 @@ import com.centricorp.backend.dto.RegistroMedidorResponseDTO;
 import com.centricorp.backend.service.RegistroMedidorService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -23,6 +29,8 @@ import java.util.List;
 @RequestMapping("/api/medidores")
 @RequiredArgsConstructor
 public class RegistroMedidorController {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final RegistroMedidorService registroService;
 
@@ -51,7 +59,7 @@ public class RegistroMedidorController {
             @RequestParam(defaultValue = "15") int size,
             @RequestParam(required = false) Integer tipoServicio
     ) {
-        return ResponseEntity.ok(registroService.findAll(tipoServicio, page, size));
+        return ResponseEntity.ok(registroService.findAll(tipoServicio, normalizePage(page), normalizeSize(size)));
     }
 
     /**
@@ -70,5 +78,29 @@ public class RegistroMedidorController {
     ) {
         Integer tipoFiltro = (tipoServicio == null || tipoServicio == 0) ? null : tipoServicio;
         return ResponseEntity.ok(registroService.findReporte(mes, anio, tipoFiltro));
+    }
+
+    @GetMapping("/reporte/excel")
+    public ResponseEntity<InputStreamResource> getReporteExcel(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta,
+            @RequestParam(required = false) Integer tipoServicio
+    ) {
+        Integer tipoFiltro = (tipoServicio == null || tipoServicio == 0) ? null : tipoServicio;
+        ByteArrayInputStream stream = registroService.generarReporteExcel(desde, hasta, tipoFiltro);
+        String filename = "reporte-medidores-" + desde + "_" + hasta + ".xlsx";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(new InputStreamResource(stream));
+    }
+
+    private int normalizePage(int page) {
+        return Math.max(page, 0);
+    }
+
+    private int normalizeSize(int size) {
+        return Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
     }
 }

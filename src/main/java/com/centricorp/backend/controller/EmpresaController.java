@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class EmpresaController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final EmpresaService empresaService;
     private final EmpresaExcelService empresaExcelService;
 
@@ -33,7 +35,16 @@ public class EmpresaController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        return ResponseEntity.ok(empresaService.findAll(page, size));
+        return ResponseEntity.ok(empresaService.findAll(normalizePage(page), normalizeSize(size)));
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<Page<EmpresaDTO>> search(
+            @RequestParam(defaultValue = "") String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(empresaService.search(q, normalizePage(page), normalizeSearchSize(size)));
     }
 
     @GetMapping("/{ruc}")
@@ -77,5 +88,17 @@ public class EmpresaController {
     public ResponseEntity<com.centricorp.backend.dto.CargaMasivaResponseDTO> uploadEmpresas(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
         com.centricorp.backend.dto.CargaMasivaResponseDTO response = empresaExcelService.procesarCargaMasiva(file);
         return ResponseEntity.ok(response);
+    }
+
+    private int normalizePage(int page) {
+        return Math.max(page, 0);
+    }
+
+    private int normalizeSize(int size) {
+        return Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    }
+
+    private int normalizeSearchSize(int size) {
+        return Math.min(Math.max(size, 1), 50);
     }
 }

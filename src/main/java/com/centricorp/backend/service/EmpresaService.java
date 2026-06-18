@@ -12,6 +12,8 @@ public interface EmpresaService {
      */
     Page<EmpresaDTO> findAll(int page, int size);
 
+    Page<EmpresaDTO> search(String q, int page, int size);
+
     EmpresaDTO findById(String ruc);
     EmpresaDTO create(EmpresaDTO dto);
     EmpresaDTO update(String ruc, EmpresaDTO dto);

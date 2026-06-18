@@ -4,6 +4,8 @@ import com.centricorp.backend.dto.RegistroMedidorRequestDTO;
 import com.centricorp.backend.dto.RegistroMedidorResponseDTO;
 import org.springframework.data.domain.Page;
 
+import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
 import java.util.List;
 
 public interface RegistroMedidorService {
@@ -28,4 +30,6 @@ public interface RegistroMedidorService {
      * @param tipoServicio 1=Luz, 2=Agua, null=Ambos (sin filtro de tipo)
      */
     List<RegistroMedidorResponseDTO> findReporte(int mes, int anio, Integer tipoServicio);
+
+    ByteArrayInputStream generarReporteExcel(LocalDate desde, LocalDate hasta, Integer tipoServicio);
 }

@@ -10,7 +10,7 @@ import com.centricorp.backend.repository.EmpresaRepository;
 import com.centricorp.backend.repository.InfraestructuraRepository;
 import com.centricorp.backend.repository.RegistroMedidorRepository;
 import com.centricorp.backend.security.SecurityUtils;
-import com.centricorp.backend.security.TenantContext;
+import com.centricorp.backend.security.TenantGuard;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,7 +42,7 @@ public class DashboardServiceImpl {
         if (tipoServicio == null) tipoServicio = 1;
 
         boolean superAdmin = SecurityUtils.isSuperAdmin();
-        String tenantId = TenantContext.getCurrentTenant();
+        String tenantId = superAdmin ? null : TenantGuard.requireTenant();
 
         long totalEmpresas = superAdmin ? empresaRepo.count() : empresaRepo.countByTenantId(tenantId);
         long totalEdificios = superAdmin

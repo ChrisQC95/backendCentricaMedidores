@@ -24,6 +24,22 @@ public interface InfraestructuraRepository extends JpaRepository<Infraestructura
     @EntityGraph(attributePaths = {"empresa", "parent"})
     Page<Infraestructura> findAll(Pageable pageable);
 
+    @EntityGraph(attributePaths = {"empresa", "parent"})
+    Page<Infraestructura> findByNombreContainingIgnoreCase(String nombre, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"empresa", "parent"})
+    Page<Infraestructura> findByTenantIdAndNombreContainingIgnoreCase(String tenantId, String nombre, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"empresa", "parent"})
+    Page<Infraestructura> findByEmpresaRucAndNombreContainingIgnoreCase(String empresaRuc, String nombre, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"empresa", "parent"})
+    Page<Infraestructura> findByEmpresaRucAndTenantIdAndNombreContainingIgnoreCase(
+            String empresaRuc,
+            String tenantId,
+            String nombre,
+            Pageable pageable);
+
     Optional<Infraestructura> findByIdAndTenantId(Integer id, String tenantId);
 
     /** Lista plana sin paginar, usada por selectores del frontend (combo boxes). */

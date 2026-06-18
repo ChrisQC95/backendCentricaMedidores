@@ -5,6 +5,7 @@ import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.SignatureException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String AUTH_HEADER = "Authorization";
+    private static final String ACCESS_TOKEN_COOKIE = "access_token";
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
@@ -40,13 +42,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         final String authHeader = request.getHeader(AUTH_HEADER);
+        final String jwt = resolveToken(request, authHeader);
 
-        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+        if (jwt == null) {
             filterChain.doFilter(request, response);
             return;
         }
-
-        final String jwt = authHeader.substring(BEARER_PREFIX.length());
 
         try {
             final String username = jwtService.extractUsername(jwt);
@@ -99,15 +100,41 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (userDetails instanceof CustomUserDetails customUserDetails) {
             String userTenantId = customUserDetails.getTenantId();
 
-            if (!isSuperAdmin && !Objects.equals(tokenTenantId, userTenantId)) {
-                log.warn("JWT rechazado por tenant_id inconsistente para usuario {}", username);
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Token invalido");
+            if (!isSuperAdmin) {
+                if (userTenantId == null || userTenantId.isBlank()
+                        || tokenTenantId == null || tokenTenantId.isBlank()
+                        || !Objects.equals(tokenTenantId, userTenantId)) {
+                    log.warn("JWT rechazado por tenant_id inconsistente para usuario {}", username);
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Token invalido");
+                    return;
+                }
+
+                TenantContext.setCurrentTenant(userTenantId);
                 return;
             }
 
-            if (userTenantId != null) {
+            if (userTenantId != null && !userTenantId.isBlank()) {
                 TenantContext.setCurrentTenant(userTenantId);
             }
         }
+    }
+
+    private String resolveToken(HttpServletRequest request, String authHeader) {
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            return authHeader.substring(BEARER_PREFIX.length());
+        }
+
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+
+        for (Cookie cookie : cookies) {
+            if (ACCESS_TOKEN_COOKIE.equals(cookie.getName()) && cookie.getValue() != null && !cookie.getValue().isBlank()) {
+                return cookie.getValue();
+            }
+        }
+
+        return null;
     }
 }
